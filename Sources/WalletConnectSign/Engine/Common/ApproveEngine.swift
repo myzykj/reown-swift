@@ -210,11 +210,18 @@ final class ApproveEngine {
             .addingTimeInterval(TimeInterval(WCSession.defaultTimeToLive))
             .timeIntervalSince1970
 
+        var enrichedSessionProperties = sessionProperties
+        if namespaces["tron"] != nil {
+            var props = sessionProperties ?? [:]
+            props["tron_method_version"] = "v1"
+            enrichedSessionProperties = props
+        }
+
         let settleParams = SessionType.SettleParams(
             relay: relay,
             controller: selfParticipant,
             namespaces: namespaces,
-            sessionProperties: sessionProperties,
+            sessionProperties: enrichedSessionProperties,
             scopedProperties: scopedProperties,
             expiry: Int64(expiry)
         )
