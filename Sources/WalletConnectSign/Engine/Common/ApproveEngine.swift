@@ -210,11 +210,32 @@ final class ApproveEngine {
             .addingTimeInterval(TimeInterval(WCSession.defaultTimeToLive))
             .timeIntervalSince1970
 
+        // Enrich session properties based on config
+        var enrichedSessionProperties = sessionProperties
+        if let config = loadSessionPropertiesConfig() {
+            var props = sessionProperties ?? [:]
+            var hasMatchingNamespace = false
+            
+            // Only merge properties if namespace exists in both session namespaces and config
+            for (namespace, _) in namespaces {
+                // Check if this namespace exists in config and is of correct type
+                if let namespaceProps = config[namespace] as? [String: String] {
+                    hasMatchingNamespace = true
+                    props.merge(namespaceProps) { (_, new) in new }
+                }
+            }
+            
+            // Only update enrichedSessionProperties if we found matching namespaces
+            if hasMatchingNamespace {
+                enrichedSessionProperties = props.isEmpty ? nil : props
+            }
+        }
+
         let settleParams = SessionType.SettleParams(
             relay: relay,
             controller: selfParticipant,
             namespaces: namespaces,
-            sessionProperties: sessionProperties,
+            sessionProperties: enrichedSessionProperties,
             scopedProperties: scopedProperties,
             expiry: Int64(expiry)
         )
@@ -483,6 +504,15 @@ private extension ApproveEngine {
                 } onCancel: { }
             }
         }
+    }
+    
+    func loadSessionPropertiesConfig() -> [String: Any]? {
+        guard let url = Bundle.module.url(forResource: "SessionPropertiesConfig", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json
     }
 }
 
