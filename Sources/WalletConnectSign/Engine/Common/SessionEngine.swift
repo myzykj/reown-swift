@@ -186,11 +186,14 @@ private extension SessionEngine {
         logger.debug("Received session request")
         let protocolMethod = SessionRequestProtocolMethod()
         let topic = payload.topic
+        // Normalize params to handle nested structures like params.transaction.transaction -> params.transaction
+        // Only normalize for Tron namespace
+        let normalizedParams = normalizeRequestParams(payload.request.request.params, chainId: payload.request.chainId)
         let request = Request(
             id: payload.id,
             topic: payload.topic,
             method: payload.request.request.method,
-            params: payload.request.request.params,
+            params: normalizedParams,
             chainId: payload.request.chainId,
             expiryTimestamp: payload.request.request.expiryTimestamp
         )
@@ -231,6 +234,43 @@ private extension SessionEngine {
             try await networkingInteractor.respondSuccess(topic: payload.topic, requestId: payload.id, protocolMethod: protocolMethod)
         }
         onEventReceived?(topic, event.publicRepresentation(), payload.request.chainId)
+    }
+    
+    /// Normalizes request parameters by detecting and flattening nested structures.
+    /// For example, converts params.transaction.transaction -> params.transaction
+    /// 
+    /// This normalization only applies to Tron namespace to handle edge cases where
+    /// transaction parameters have an extra nesting layer.
+    /// 
+    /// Safety: Only affects Tron requests that have the specific nested pattern params.transaction.transaction
+    private func normalizeRequestParams(_ params: AnyCodable, chainId: Blockchain) -> AnyCodable {
+        // Only normalize for Tron to handle nested transaction parameters
+        guard chainId.namespace == "tron" else {
+            return params
+        }
+        
+        // Try to get params as a dictionary
+        guard let paramsDict = try? params.get([String: AnyCodable].self) else {
+            return params
+        }
+        
+        // Check for nested transaction structure: params.transaction.transaction
+        // This pattern can occur when there's an extra nesting layer (Tron edge cases)
+        // We only normalize if:
+        // 1. params.transaction exists
+        // 2. params.transaction is a dictionary (not a primitive value)
+        // 3. params.transaction.transaction exists (can be any type)
+        if let transaction = paramsDict["transaction"],
+           let transactionDict = try? transaction.get([String: AnyCodable].self),
+           transactionDict["transaction"] != nil {
+            // Found nested structure, flatten it by replacing transaction with nested transaction
+            var normalizedDict = paramsDict
+            normalizedDict["transaction"] = transactionDict["transaction"]!
+            return AnyCodable(any: normalizedDict)
+        }
+        
+        // No normalization needed, return original params
+        return params
     }
 }
 
